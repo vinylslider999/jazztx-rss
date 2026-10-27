@@ -2,8 +2,8 @@ name: Update Jazz TX feed
 
 on:
   schedule:
-    - cron: "0 */6 * * *"
-  workflow_dispatch:
+    - cron: "0 */6 * * *"   # every 6 hours
+  workflow_dispatch:          # lets you run it manually from the Actions tab
 
 permissions:
   contents: write
@@ -17,6 +17,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - run: playwright install --with-deps chromium
       - name: Build feed
         run: python scrape_jazztx.py --output docs/feed.xml --feed-url "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/feed.xml"
       - name: Commit if changed

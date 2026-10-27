@@ -26,9 +26,43 @@ LOGO = "https://assets-prod.turntabletickets.com/media/jazztx/20230103-1934-jazz
 
 
 def fetch(url):
+    """Plain download: only returns the first batch of shows."""
     r = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0 (jazztx-rss-feed)"})
     r.raise_for_status()
     return r.text
+
+
+def fetch_rendered(url, max_rounds=150):
+    """Open the page in a real headless browser and keep scrolling until no
+    more shows load (the site loads additional shows as you scroll)."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 1280, "height": 1000})
+        page.goto(url, wait_until="networkidle", timeout=60000)
+        last, stable = -1, 0
+        for _ in range(max_rounds):
+            count = page.locator("h2").count()
+            if count == last:
+                stable += 1
+                if stable >= 4:      # nothing new after 4 tries -> done
+                    break
+            else:
+                stable, last = 0, count
+            # Click a "load more" style button if the site has one.
+            try:
+                btn = page.get_by_role("button", name=re.compile(r"(load|show|view) more", re.I))
+                if btn.count():
+                    btn.first.click(timeout=2000)
+            except Exception:
+                pass
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            page.wait_for_timeout(1500)
+        print(f"Browser scrolling finished with {last} headings on the page.")
+        html = page.content()
+        browser.close()
+    return html
 
 
 def find_block(h2):
@@ -147,7 +181,12 @@ def main():
         with open(args.input, encoding="utf-8") as f:
             html = f.read()
     else:
-        html = fetch(args.url)
+        try:
+            html = fetch_rendered(args.url)
+        except Exception as e:  # playwright missing or browser failed
+            print(f"WARNING: browser fetch failed ({e!r}); falling back to plain download, "
+                  "which only returns the first few shows.", file=sys.stderr)
+            html = fetch(args.url)
 
     shows = parse_shows(html)
     if not shows:
